@@ -3,9 +3,9 @@ name = "escpos_emulator"
 version = "1.0.0"
 edition = "2021"
 authors = ["ESC/POS Emulator Team"]
-description = "Professional ESC/POS virtual printer emulator built in Rust"
+description = "Cross-platform virtual ESC/POS thermal receipt printer emulator built in Rust"
 license = "MIT"
-repository = "https://github.com/your-username/escpos-virtual-printer-emulator"
+repository = "https://github.com/digambar9354/escpos-printer-emulator"
 keywords = ["escpos", "printer", "emulator", "receipt", "pos", "virtual", "network"]
 categories = ["multimedia", "system"]
 
