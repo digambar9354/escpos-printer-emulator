@@ -1,5 +1,5 @@
 use crate::emulator::EmulatorState;
-use egui::{ScrollArea, Ui};
+use egui::{Color32, Frame, Margin, RichText, Rounding, ScrollArea, Ui};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -27,64 +27,83 @@ impl CommandLog {
     }
 
     pub fn show(&mut self, ui: &mut Ui, emulator_state: &Arc<Mutex<EmulatorState>>) {
-        ui.heading("📋 Command Log");
-        ui.separator();
-
-        // Controls
+        // Toolbar
         ui.horizontal(|ui| {
-            ui.checkbox(&mut self.show_timestamps, "Timestamps");
-            ui.checkbox(&mut self.show_raw_data, "Raw data");
-            
-            ui.label("Filter:");
-            ui.text_edit_singleline(&mut self.filter_text);
-            
-            if ui.button("🗑️ Clear").clicked() {
-                if let Ok(mut state) = emulator_state.try_lock() {
-                    state.clear_history();
+            ui.heading("Command Log");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("🗑 Clear").clicked() {
+                    if let Ok(mut state) = emulator_state.try_lock() {
+                        state.clear_history();
+                    }
                 }
+                ui.checkbox(&mut self.show_raw_data, "Raw hex");
+                ui.checkbox(&mut self.show_timestamps, "Timestamps");
+            });
+        });
+
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            ui.label("🔍");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.filter_text)
+                    .hint_text("Filter commands…")
+                    .desired_width(240.0),
+            );
+            if !self.filter_text.is_empty() && ui.button("✕").clicked() {
+                self.filter_text.clear();
             }
         });
 
         ui.separator();
+        ui.add_space(4.0);
 
         // Log area
-        ScrollArea::vertical().show(ui, |ui| {
-            if let Ok(state) = emulator_state.try_lock() {
-                self.render_command_list(ui, &state);
-            } else {
-                ui.label("Cannot load emulator state");
-            }
-        });
+        ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                if let Ok(state) = emulator_state.try_lock() {
+                    self.render_command_list(ui, &state);
+                } else {
+                    ui.label("Cannot load emulator state");
+                }
+            });
     }
 
     fn render_command_list(&self, ui: &mut Ui, state: &EmulatorState) {
         let history = state.get_command_history();
-        
+
         if history.is_empty() {
-            ui.label("No commands received");
+            let weak = ui.visuals().weak_text_color();
+            ui.add_space(40.0);
+            ui.vertical_centered(|ui| {
+                ui.label(RichText::new("No commands received yet").color(weak));
+            });
             return;
         }
 
         // Apply filter
-        let filtered_commands: Vec<_> = history.iter()
+        let filtered_commands: Vec<_> = history
+            .iter()
             .filter(|entry| {
                 if self.filter_text.is_empty() {
                     return true;
                 }
-                
+
                 match &entry.command {
                     crate::escpos::commands::EscPosCommand::Text(text) => {
                         text.to_lowercase().contains(&self.filter_text.to_lowercase())
                     }
-                    _ => {
-                        format!("{:?}", entry.command).to_lowercase().contains(&self.filter_text.to_lowercase())
-                    }
+                    _ => format!("{:?}", entry.command)
+                        .to_lowercase()
+                        .contains(&self.filter_text.to_lowercase()),
                 }
             })
             .collect();
 
         // Limit displayed lines
-        let display_commands: Vec<_> = filtered_commands.iter()
+        let display_commands: Vec<_> = filtered_commands
+            .iter()
             .rev() // Most recent first
             .take(self.max_display_lines)
             .collect();
@@ -95,91 +114,114 @@ impl CommandLog {
         }
 
         // Statistics
+        ui.add_space(6.0);
         ui.separator();
-        ui.label(format!("Total: {} commands | Displayed: {} | Filtered: {}", 
-            history.len(), 
-            display_count,
-            filtered_commands.len()
-        ));
+        ui.label(
+            RichText::new(format!(
+                "Total: {}  •  Displayed: {}  •  Filtered: {}",
+                history.len(),
+                display_count,
+                filtered_commands.len()
+            ))
+            .small()
+            .color(ui.visuals().weak_text_color()),
+        );
     }
 
     fn render_command_entry(&self, ui: &mut Ui, entry: &crate::emulator::CommandEntry) {
-        ui.group(|ui| {
-            // Timestamp
-            if self.show_timestamps {
-                if let Ok(duration) = entry.timestamp.duration_since(std::time::UNIX_EPOCH) {
-                    let time_str = if duration.as_secs() < 60 {
-                        format!("{}s", duration.as_secs())
-                    } else if duration.as_secs() < 3600 {
-                        format!("{}m {}s", duration.as_secs() / 60, duration.as_secs() % 60)
-                    } else {
-                        format!("{}h {}m", duration.as_secs() / 3600, (duration.as_secs() % 3600) / 60)
-                    };
-                    
-                    ui.label(format!("⏰ {}", time_str));
-                }
-            }
+        let default_text = ui.visuals().text_color();
+        let weak = ui.visuals().weak_text_color();
+        let (text, color) = describe_command(&entry.command, default_text);
+        let fill = ui.visuals().faint_bg_color;
+        let border = ui.visuals().widgets.noninteractive.bg_stroke;
 
-            // Command
-            let command_text = match &entry.command {
-                crate::escpos::commands::EscPosCommand::Text(text) => {
-                    format!("📝 {}", text)
-                }
-                crate::escpos::commands::EscPosCommand::NewLine => {
-                    "↵ New line".to_string()
-                }
-                crate::escpos::commands::EscPosCommand::SetFont(font) => {
-                    format!("🔤 Font: {:?}", font)
-                }
-                crate::escpos::commands::EscPosCommand::SetJustification(just) => {
-                    format!("📐 Justification: {:?}", just)
-                }
-                crate::escpos::commands::EscPosCommand::SetEmphasis(enabled) => {
-                    format!("💪 Emphasis: {}", if *enabled { "ON" } else { "OFF" })
-                }
-                crate::escpos::commands::EscPosCommand::SetUnderline(enabled) => {
-                    format!("➖ Underline: {}", if *enabled { "ON" } else { "OFF" })
-                }
-                crate::escpos::commands::EscPosCommand::SetItalic(enabled) => {
-                    format!("📝 Italic: {}", if *enabled { "ON" } else { "OFF" })
-                }
-                crate::escpos::commands::EscPosCommand::CutPaper => {
-                    "✂️ Paper cut".to_string()
-                }
-                crate::escpos::commands::EscPosCommand::PrintImage(_) => {
-                    "🖼️ Bit Image (ESC *)".to_string()
-                }
-                crate::escpos::commands::EscPosCommand::PrintRasterImage { width_bytes, height, .. } => {
-                    format!("🖼️ Raster Image (GS v 0) {}×{}", width_bytes * 8, height)
-                }
-                crate::escpos::commands::EscPosCommand::SetCodepage(cp) => {
-                    format!("🌐 Codepage: {}", cp)
-                }
-                crate::escpos::commands::EscPosCommand::SetLineHeight(height) => {
-                    format!("📏 Line height: {}", height)
-                }
-                crate::escpos::commands::EscPosCommand::SetFontSize(size) => {
-                    format!("🔤 Font size: {}", size)
-                }
-                crate::escpos::commands::EscPosCommand::Unknown(_) => {
-                    "❓ Unknown command".to_string()
-                }
-                _ => {
-                    format!("⚙️ {:?}", entry.command)
-                }
-            };
+        Frame::none()
+            .fill(fill)
+            .rounding(Rounding::same(6.0))
+            .stroke(border)
+            .inner_margin(Margin::symmetric(10.0, 6.0))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if self.show_timestamps {
+                        if let Ok(duration) =
+                            entry.timestamp.duration_since(std::time::UNIX_EPOCH)
+                        {
+                            let secs = duration.as_secs();
+                            let time_str = if secs < 60 {
+                                format!("{}s", secs)
+                            } else if secs < 3600 {
+                                format!("{}m{}s", secs / 60, secs % 60)
+                            } else {
+                                format!("{}h{}m", secs / 3600, (secs % 3600) / 60)
+                            };
+                            ui.label(
+                                RichText::new(format!("⏰ {}", time_str))
+                                    .small()
+                                    .color(weak),
+                            );
+                        }
+                    }
+                    ui.label(RichText::new(text).color(color));
+                });
 
-            ui.label(command_text);
+                if self.show_raw_data && !entry.raw_data.is_empty() {
+                    let hex_data: String = entry
+                        .raw_data
+                        .iter()
+                        .map(|b| format!("{:02X}", b))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    ui.label(RichText::new(hex_data).monospace().small().color(weak));
+                }
+            });
+        ui.add_space(4.0);
+    }
+}
 
-            // Raw data if enabled
-            if self.show_raw_data && !entry.raw_data.is_empty() {
-                let hex_data: String = entry.raw_data.iter()
-                    .map(|b| format!("{:02X}", b))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                
-                ui.label(format!("🔢 Data: {}", hex_data));
-            }
-        });
+/// Map a command to a human-readable label and a colour for the log entry.
+fn describe_command(
+    command: &crate::escpos::commands::EscPosCommand,
+    text: Color32,
+) -> (String, Color32) {
+    use crate::escpos::commands::EscPosCommand as C;
+
+    let control = Color32::from_rgb(120, 175, 255);
+    let toggle = Color32::from_rgb(120, 205, 150);
+    let media = Color32::from_rgb(190, 150, 250);
+    let danger = Color32::from_rgb(240, 130, 120);
+    let muted = Color32::from_gray(150);
+
+    match command {
+        C::Text(t) => (format!("📝 {}", t), text),
+        C::NewLine => ("↵ New line".to_string(), muted),
+        C::SetFont(font) => (format!("🔤 Font: {:?}", font), control),
+        C::SetJustification(just) => (format!("📐 Justification: {:?}", just), control),
+        C::SetEmphasis(on) => (
+            format!("💪 Emphasis: {}", if *on { "ON" } else { "OFF" }),
+            toggle,
+        ),
+        C::SetUnderline(on) => (
+            format!("➖ Underline: {}", if *on { "ON" } else { "OFF" }),
+            toggle,
+        ),
+        C::SetItalic(on) => (
+            format!("✒ Italic: {}", if *on { "ON" } else { "OFF" }),
+            toggle,
+        ),
+        C::CutPaper => ("✂️ Paper cut".to_string(), danger),
+        C::PrintImage(_) => ("🖼️ Bit Image (ESC *)".to_string(), media),
+        C::PrintRasterImage {
+            width_bytes,
+            height,
+            ..
+        } => (
+            format!("🖼️ Raster Image (GS v 0) {}×{}", width_bytes * 8, height),
+            media,
+        ),
+        C::SetCodepage(cp) => (format!("🌐 Codepage: {}", cp), control),
+        C::SetLineHeight(h) => (format!("📏 Line height: {}", h), control),
+        C::SetFontSize(s) => (format!("🔤 Font size: {}", s), control),
+        C::Unknown(_) => ("❓ Unknown command".to_string(), muted),
+        other => (format!("⚙️ {:?}", other), muted),
     }
 }

@@ -8,8 +8,9 @@ use tokio::sync::Mutex;
 use tracing::{info, warn, error};
 
 pub async fn start_server(emulator_state: Arc<Mutex<EmulatorState>>) -> Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:9100").await?;
-    info!("ESC/POS Emulator server listening on 127.0.0.1:9100");
+    // Bind to 0.0.0.0 so other devices on the LAN (e.g. a phone) can connect, not just localhost
+    let listener = TcpListener::bind("0.0.0.0:9100").await?;
+    info!("ESC/POS Emulator server listening on 0.0.0.0:9100 (reachable from the local network)");
 
     loop {
         match listener.accept().await {

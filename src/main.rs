@@ -1,3 +1,4 @@
+use eframe::egui;
 use escpos_emulator::emulator::EmulatorState;
 use escpos_emulator::gui::EscPosEmulatorApp;
 use escpos_emulator::networking::server;
@@ -28,11 +29,24 @@ async fn main() -> Result<(), eframe::Error> {
     info!("✅ Emulator initialized successfully");
 
     // Launch GUI
-    let options = eframe::NativeOptions::default();
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([920.0, 720.0])
+            .with_min_inner_size([560.0, 440.0])
+            .with_title("ESC/POS Virtual Printer Emulator"),
+        ..Default::default()
+    };
 
     eframe::run_native(
         "ESC/POS Virtual Printer Emulator",
         options,
-        Box::new(|_cc| Box::new(EscPosEmulatorApp::new(emulator_state))),
+        Box::new(|cc| {
+            use escpos_emulator::gui::theme;
+            theme::install_fonts(&cc.egui_ctx);
+            theme::apply_style(&cc.egui_ctx);
+            theme::apply_theme(&cc.egui_ctx, true); // start in dark mode
+            Box::new(EscPosEmulatorApp::new(emulator_state))
+        }),
     )
 }
+

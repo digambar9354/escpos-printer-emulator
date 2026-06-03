@@ -2,6 +2,7 @@ pub mod app;
 pub mod receipt_viewer;
 pub mod command_log;
 pub mod settings_panel;
+pub mod theme;
 
 pub use app::EscPosEmulatorApp;
 pub use receipt_viewer::ReceiptViewer;
