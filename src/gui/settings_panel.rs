@@ -51,11 +51,13 @@ impl SettingsPanel {
                 ui.add_space(4.0);
 
                 ui.horizontal_wrapped(|ui| {
-                    if ui.button("🖨 Install Windows Printer").clicked() {
-                        self.run("Install Windows Printer", install_windows_printer);
-                    }
-                    if ui.button("🐧 Install Linux Printer").clicked() {
-                        self.run("Install Linux Printer", install_linux_printer);
+                    // Show only the install button for the current OS.
+                    if cfg!(target_os = "windows") {
+                        if ui.button("🖨 Install Windows Printer").clicked() {
+                            self.run("Install Printer", install_windows_printer);
+                        }
+                    } else if ui.button("🐧 Install Linux Printer").clicked() {
+                        self.run("Install Printer", install_linux_printer);
                     }
                     if ui.button("🗑 Uninstall Printer").clicked() {
                         self.run("Uninstall Printer", uninstall_printer);
@@ -181,6 +183,19 @@ fn powershell(command: &str) -> (bool, String) {
     }
 }
 
+/// Run a bash command and return (success, combined output).
+fn bash(command: &str) -> (bool, String) {
+    match Command::new("bash").args(["-c", command]).output() {
+        Ok(output) => {
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let body = if !stdout.is_empty() { stdout } else { stderr };
+            (output.status.success(), body)
+        }
+        Err(e) => (false, format!("Cannot run bash: {}", e)),
+    }
+}
+
 fn install_windows_printer() -> OpResult {
     let (ok, body) = powershell(
         "Add-PrinterPort -Name '127.0.0.1:9100' -PrinterHostAddress '127.0.0.1' -PortNumber 9100 -ErrorAction SilentlyContinue; \
@@ -197,11 +212,15 @@ fn install_windows_printer() -> OpResult {
 }
 
 fn uninstall_printer() -> OpResult {
-    let (ok, body) = powershell(
-        "Remove-Printer -Name 'ESC_POS_Virtual_Printer' -Confirm:$false -ErrorAction SilentlyContinue; \
-         Remove-PrinterPort -Name '127.0.0.1:9100' -ErrorAction SilentlyContinue; \
-         Write-Host 'Printer uninstalled successfully'",
-    );
+    let (ok, body) = if cfg!(target_os = "windows") {
+        powershell(
+            "Remove-Printer -Name 'ESC_POS_Virtual_Printer' -Confirm:$false -ErrorAction SilentlyContinue; \
+             Remove-PrinterPort -Name '127.0.0.1:9100' -ErrorAction SilentlyContinue; \
+             Write-Host 'Printer uninstalled successfully'",
+        )
+    } else {
+        bash("sudo lpadmin -x ESC_POS_Linux_Printer && echo 'Printer uninstalled successfully'")
+    };
     let body = if body.is_empty() {
         "Printer uninstalled.".to_string()
     } else {
@@ -211,11 +230,17 @@ fn uninstall_printer() -> OpResult {
 }
 
 fn check_printer_status() -> OpResult {
-    let (_ok, body) = powershell(
-        "Get-Printer -Name 'ESC_POS_Virtual_Printer' -ErrorAction SilentlyContinue | \
-         Format-List Name, PortName, DriverName, PrinterStatus",
-    );
-    if body.trim().is_empty() {
+    let body = if cfg!(target_os = "windows") {
+        powershell(
+            "Get-Printer -Name 'ESC_POS_Virtual_Printer' -ErrorAction SilentlyContinue | \
+             Format-List Name, PortName, DriverName, PrinterStatus",
+        )
+        .1
+    } else {
+        bash("lpstat -p ESC_POS_Linux_Printer 2>&1").1
+    };
+
+    if body.trim().is_empty() || body.contains("Unknown") || body.contains("No such") {
         OpResult {
             title: "Printer Status".to_string(),
             body: "Virtual printer is NOT installed.".to_string(),
@@ -230,11 +255,18 @@ fn check_printer_status() -> OpResult {
     }
 }
 
+/// Pure-Rust TCP reachability check — works on every platform, no shell needed.
 fn test_network_connection() -> OpResult {
-    let (_ok, body) = powershell(
-        "(Test-NetConnection -ComputerName 127.0.0.1 -Port 9100 -WarningAction SilentlyContinue).TcpTestSucceeded",
-    );
-    let success = body.contains("True");
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    let success = "127.0.0.1:9100"
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut addrs| addrs.next())
+        .map(|addr| TcpStream::connect_timeout(&addr, Duration::from_secs(2)).is_ok())
+        .unwrap_or(false);
+
     let body = if success {
         "✅ Port 9100 is reachable — the server is listening.".to_string()
     } else {
