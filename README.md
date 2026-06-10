@@ -205,17 +205,22 @@ sudo apt install -y build-essential pkg-config \
 sudo ss -ltnp 'sport = :9100'      # or: sudo lsof -i :9100
 ```
 
-**Install as a CUPS printer** (or use the Settings tab):
+**Install as a CUPS printer** (or use the Settings tab). Modern CUPS deprecates driver/PPD
+models, so use a **raw** queue — which is what we want anyway (pass ESC/POS straight to the socket):
 ```bash
-sudo lpadmin -p ESC_POS_Linux_Printer -E -v socket://127.0.0.1:9100 -m 'Generic Text-Only Printer'
+sudo lpadmin -p ESC_POS_Linux_Printer -E -v socket://127.0.0.1:9100 -m raw
 sudo lpadmin -d ESC_POS_Linux_Printer
 ```
+> A CUPS queue is only needed to print from desktop apps. POS apps can connect **directly** to
+> `socket://127.0.0.1:9100` (or `<LAN-IP>:9100`) with no CUPS queue at all.
 
 | Issue | Fix |
 |-------|-----|
 | Build fails: missing `xcb` / `GL` / `wayland` headers | Install the GUI build deps above. |
 | Window doesn't open over SSH / headless | egui needs a display; use a desktop session with `DISPLAY` / `WAYLAND_DISPLAY` set. |
-| `Address already in use (os error 98)` | Port 9100 is taken: `sudo ss -ltnp 'sport = :9100'`, stop it or change the port. |
+| `Address already in use (os error 98)` | A previous emulator instance still holds the port: `sudo ss -ltnp 'sport = :9100'` then `pkill -f escpos_emulator`. |
+| `lpadmin: cups-driverd failed to get PPD file` | Old driver/PPD models are deprecated. Use a **raw** queue: `-m raw` (the Settings tab now does this). |
+| `sctk_adwaita: Ignoring unknown button type` | Harmless Wayland window-decoration warning — safe to ignore. |
 | CUPS print does nothing | Ensure `cups` is running (`systemctl status cups`) and the URI is `socket://127.0.0.1:9100`. |
 | Blurry / wrong scaling on HiDPI | Set `WINIT_X11_SCALE_FACTOR=1.5` (your factor) before launching. |
 

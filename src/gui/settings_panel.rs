@@ -276,15 +276,17 @@ fn test_network_connection() -> OpResult {
 }
 
 fn install_linux_printer() -> OpResult {
+    // Use a RAW queue: modern CUPS deprecates driver/PPD models, and raw is exactly
+    // what we want — pass ESC/POS bytes straight through to the socket.
     let result = Command::new("bash")
         .args([
             "-c",
             "if command -v lpadmin >/dev/null 2>&1; then \
-                sudo lpadmin -p ESC_POS_Linux_Printer -E -v socket://127.0.0.1:9100 -m 'Generic Text-Only Printer' && \
+                sudo lpadmin -p ESC_POS_Linux_Printer -E -v socket://127.0.0.1:9100 -m raw && \
                 sudo lpadmin -d ESC_POS_Linux_Printer && \
-                echo 'Linux printer installed successfully'; \
+                echo 'Linux printer installed successfully (raw queue).'; \
              else \
-                echo 'CUPS (lpadmin) not found. Install CUPS first.'; exit 1; \
+                echo 'CUPS (lpadmin) not found. Install CUPS first: sudo apt install cups'; exit 1; \
              fi",
         ])
         .output();
