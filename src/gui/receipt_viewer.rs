@@ -54,24 +54,13 @@ impl ReceiptViewer {
     }
 
     pub fn show(&mut self, ui: &mut Ui, emulator_state: &Arc<Mutex<EmulatorState>>) {
-        // Toolbar — title + actions
-        ui.horizontal(|ui| {
-            ui.heading("Receipt Preview");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("🗑 Clear").clicked() {
-                    if let Ok(mut state) = emulator_state.try_lock() {
-                        state.clear_printer_buffer();
-                    }
-                    self.bitmap_cache.clear();
-                }
-                ui.checkbox(&mut self.show_grid, "Grid");
-                ui.checkbox(&mut self.show_paper_edges, "Paper edges");
-            });
-        });
+        ui.heading("Receipt Preview");
+        ui.add_space(4.0);
 
-        // Toolbar — zoom + ordering
-        ui.horizontal(|ui| {
+        // Single wrapping toolbar so controls never get clipped on narrow windows.
+        ui.horizontal_wrapped(|ui| {
             ui.label("🔍 Zoom");
+            ui.spacing_mut().slider_width = 90.0;
             ui.add(
                 Slider::new(&mut self.zoom, 0.5..=3.0)
                     .fixed_decimals(1)
@@ -82,6 +71,14 @@ impl ReceiptViewer {
             }
             ui.separator();
             ui.checkbox(&mut self.newest_first, "Newest on top");
+            ui.checkbox(&mut self.show_grid, "Grid");
+            ui.checkbox(&mut self.show_paper_edges, "Edges");
+            if ui.button("🗑 Clear").clicked() {
+                if let Ok(mut state) = emulator_state.try_lock() {
+                    state.clear_printer_buffer();
+                }
+                self.bitmap_cache.clear();
+            }
         });
 
         ui.separator();
@@ -199,12 +196,23 @@ impl ReceiptViewer {
             ui.visuals_mut().widgets.noninteractive.bg_stroke =
                 Stroke::new(1.0, Color32::from_gray(190));
 
+            let default_gap = ui.spacing().item_spacing.y;
+            let mut prev_bitmap = false;
+
             for (line_num, line) in lines {
                 match line {
                     ReceiptLine::Text(text) => {
                         if text.is_empty() {
-                            ui.add_space(6.0 * zoom);
+                            // Drop blank lines while we're in a run of image strips so a
+                            // multi-band logo joins seamlessly. `prev_bitmap` stays sticky
+                            // across blank lines, so several newlines between strips are all
+                            // collapsed. Normal blank lines elsewhere keep their spacing.
+                            if !prev_bitmap {
+                                ui.spacing_mut().item_spacing.y = default_gap;
+                                ui.add_space(6.0 * zoom);
+                            }
                         } else {
+                            ui.spacing_mut().item_spacing.y = default_gap;
                             self.render_text_line(
                                 ui,
                                 line_num + 1,
@@ -212,6 +220,7 @@ impl ReceiptViewer {
                                 printer_state.emphasis,
                                 zoom,
                             );
+                            prev_bitmap = false;
                         }
                     }
                     ReceiptLine::Bitmap {
@@ -219,11 +228,17 @@ impl ReceiptViewer {
                         height_px,
                         data,
                     } => {
+                        // Image strips of a logo arrive as several rasters; render them
+                        // with no vertical gap so they join into one seamless image.
+                        ui.spacing_mut().item_spacing.y = 0.0;
                         self.render_bitmap(ui, *width_px, *height_px, data, paper_width, zoom);
+                        prev_bitmap = true;
                     }
                     ReceiptLine::Separator => {}
                 }
             }
+
+            ui.spacing_mut().item_spacing.y = default_gap;
 
             if was_cut {
                 ui.add_space(10.0 * zoom);

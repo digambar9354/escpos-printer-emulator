@@ -27,28 +27,28 @@ impl CommandLog {
     }
 
     pub fn show(&mut self, ui: &mut Ui, emulator_state: &Arc<Mutex<EmulatorState>>) {
-        // Toolbar
-        ui.horizontal(|ui| {
-            ui.heading("Command Log");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("🗑 Clear").clicked() {
-                    if let Ok(mut state) = emulator_state.try_lock() {
-                        state.clear_history();
-                    }
+        ui.heading("Command Log");
+        ui.add_space(4.0);
+
+        // Wrapping toolbar so controls never get clipped on narrow windows.
+        ui.horizontal_wrapped(|ui| {
+            ui.checkbox(&mut self.show_timestamps, "Timestamps");
+            ui.checkbox(&mut self.show_raw_data, "Raw hex");
+            if ui.button("🗑 Clear").clicked() {
+                if let Ok(mut state) = emulator_state.try_lock() {
+                    state.clear_history();
                 }
-                ui.checkbox(&mut self.show_raw_data, "Raw hex");
-                ui.checkbox(&mut self.show_timestamps, "Timestamps");
-            });
+            }
         });
 
         ui.add_space(4.0);
 
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.label("🔍");
             ui.add(
                 egui::TextEdit::singleline(&mut self.filter_text)
                     .hint_text("Filter commands…")
-                    .desired_width(240.0),
+                    .desired_width(180.0),
             );
             if !self.filter_text.is_empty() && ui.button("✕").clicked() {
                 self.filter_text.clear();

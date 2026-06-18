@@ -55,15 +55,32 @@ impl EscPosParser {
                         Err(_) => { i += 2; }
                     }
                 }
+                0x10 => {
+                    // DLE — real-time commands (e.g. DLE EOT n status request).
+                    // These are answered at the socket level; consume without visual output.
+                    if i + 1 >= self.buffer.len() {
+                        break;
+                    }
+                    if self.buffer[i + 1] == 0x04 {
+                        // DLE EOT n = 3 bytes
+                        if i + 2 >= self.buffer.len() {
+                            break;
+                        }
+                        i += 3;
+                    } else {
+                        i += 2;
+                    }
+                }
+                b if b < 0x20 => {
+                    // Unhandled control byte (NUL padding, stray DC/EOT bytes, etc.).
+                    // Skip it so it never renders as a garbage "□" glyph.
+                    i += 1;
+                }
                 _ => {
-                    // Normal text bytes
+                    // Printable text run — stops at any control byte (< 0x20),
+                    // which also covers ESC, GS, LF and CR.
                     let text_start = i;
-                    while i < self.buffer.len()
-                        && self.buffer[i] != 0x1B
-                        && self.buffer[i] != 0x1D
-                        && self.buffer[i] != b'\n'
-                        && self.buffer[i] != b'\r'
-                    {
+                    while i < self.buffer.len() && self.buffer[i] >= 0x20 {
                         i += 1;
                     }
                     if i > text_start {
