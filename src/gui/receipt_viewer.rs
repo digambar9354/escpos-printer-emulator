@@ -261,7 +261,7 @@ impl ReceiptViewer {
                         // Image strips of a logo arrive as several rasters; render them
                         // with no vertical gap so they join into one seamless image.
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        self.render_bitmap(ui, *width_px, *height_px, data, scale, content_px);
+                        self.render_bitmap(ui, *width_px, *height_px, data, content_px);
                         prev_bitmap = true;
                     }
                     ReceiptLine::Separator => {}
@@ -309,8 +309,7 @@ impl ReceiptViewer {
         width_px: u32,
         height_px: u32,
         data: &[u8],
-        scale: f32,
-        max_width: f32,
+        page_width: f32,
     ) {
         let cache_key = hash_bytes(data);
 
@@ -330,12 +329,14 @@ impl ReceiptViewer {
             )
         });
 
-        // 1 printer dot = `scale` screen px (true dot size). Clamp to the page width only
-        // if a raster is somehow wider than the paper.
-        let natural_w = width_px as f32 * scale;
-        let display_w = natural_w.min(max_width);
-        let ratio = if natural_w > 0.0 { display_w / natural_w } else { 1.0 };
-        let display_size = egui::vec2(display_w, height_px as f32 * scale * ratio);
+        // Stretch the raster to the full page width, keeping its aspect ratio for height.
+        let display_w = page_width;
+        let display_h = if width_px > 0 {
+            height_px as f32 * display_w / width_px as f32
+        } else {
+            height_px as f32
+        };
+        let display_size = egui::vec2(display_w, display_h);
         ui.image((texture.id(), display_size));
     }
 }
