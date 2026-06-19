@@ -178,6 +178,9 @@ impl ReceiptViewer {
     ) {
         let zoom = self.zoom;
         let paper_width = printer_state.get_paper_width_dots();
+        // Size the on-screen paper to the selected width (approx. monospace advance per char).
+        let max_chars = printer_state.paper_width.get_max_chars(printer_state.font_size);
+        let content_px = (max_chars as f32 * BASE_TEXT_SIZE * 0.60).max(220.0) * zoom;
 
         let mut paper = Frame::none()
             .fill(PAPER_COLOR)
@@ -188,8 +191,7 @@ impl ReceiptViewer {
         }
 
         paper.show(ui, |ui| {
-            ui.set_min_width(360.0 * zoom);
-            ui.set_max_width(580.0 * zoom);
+            ui.set_min_width(content_px);
 
             // Render dark ink on the light paper regardless of the global dark theme.
             ui.visuals_mut().override_text_color = Some(INK_COLOR);

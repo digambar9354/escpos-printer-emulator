@@ -1,4 +1,5 @@
 use crate::emulator::EmulatorState;
+use crate::escpos::printer::PaperWidth;
 use egui::{Align2, Color32, RichText, Ui};
 use std::process::Command;
 use std::sync::mpsc::{channel, Receiver};
@@ -29,7 +30,7 @@ impl Default for SettingsPanel {
 }
 
 impl SettingsPanel {
-    pub fn show(&mut self, ui: &mut Ui, _state: &mut EmulatorState) {
+    pub fn show(&mut self, ui: &mut Ui, state: &mut EmulatorState) {
         // Collect the result of any finished background operation.
         if let Some(rx) = &self.pending {
             if let Ok(res) = rx.try_recv() {
@@ -72,6 +73,68 @@ impl SettingsPanel {
                     RichText::new("Note: installing/uninstalling requires administrator privileges.")
                         .small()
                         .weak(),
+                );
+            });
+
+            ui.add_space(6.0);
+
+            // Paper width
+            ui.group(|ui| {
+                ui.label(RichText::new("Paper Width").strong());
+                ui.add_space(4.0);
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .selectable_label(
+                            matches!(state.printer_state.paper_width, PaperWidth::Width50mm),
+                            "50 mm",
+                        )
+                        .clicked()
+                    {
+                        state.set_paper_width(50);
+                    }
+                    if ui
+                        .selectable_label(
+                            matches!(state.printer_state.paper_width, PaperWidth::Width78mm),
+                            "78 mm",
+                        )
+                        .clicked()
+                    {
+                        state.set_paper_width(78);
+                    }
+                    if ui
+                        .selectable_label(
+                            matches!(state.printer_state.paper_width, PaperWidth::Width80mm),
+                            "80 mm",
+                        )
+                        .clicked()
+                    {
+                        state.set_paper_width(80);
+                    }
+                    ui.separator();
+                    ui.label("Custom:");
+                    let mut mm = state.printer_state.paper_width.to_mm();
+                    if ui
+                        .add(
+                            egui::DragValue::new(&mut mm)
+                                .clamp_range(20..=120)
+                                .suffix(" mm"),
+                        )
+                        .changed()
+                    {
+                        state.set_paper_width(mm);
+                    }
+                });
+                ui.label(
+                    RichText::new(format!(
+                        "{} dots wide · {} chars/line",
+                        state.printer_state.get_paper_width_dots(),
+                        state
+                            .printer_state
+                            .paper_width
+                            .get_max_chars(state.printer_state.font_size)
+                    ))
+                    .small()
+                    .weak(),
                 );
             });
 

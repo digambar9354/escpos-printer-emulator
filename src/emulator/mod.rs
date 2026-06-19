@@ -76,13 +76,7 @@ impl EmulatorState {
     }
 
     pub fn set_paper_width(&mut self, width_mm: u32) {
-        let paper_width = match width_mm {
-            50 => PaperWidth::Width50mm,
-            78 => PaperWidth::Width78mm,
-            80 => PaperWidth::Width80mm,
-            _ => PaperWidth::Width80mm,
-        };
-        self.printer_state.set_paper_width(paper_width);
+        self.printer_state.set_paper_width(PaperWidth::from_mm(width_mm));
     }
 
     pub fn set_line_height(&mut self, height: u32) {

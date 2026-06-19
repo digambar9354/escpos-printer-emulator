@@ -7,6 +7,8 @@ pub enum PaperWidth {
     Width50mm,  // 384 dots (48 chars normal font)
     Width78mm,  // 576 dots (72 chars normal font)
     Width80mm,  // 640 dots (80 chars normal font)
+    /// User-defined width in millimetres (8 dots/mm at 203 dpi).
+    Custom(u32),
 }
 
 impl PaperWidth {
@@ -15,6 +17,27 @@ impl PaperWidth {
             PaperWidth::Width50mm => 384,
             PaperWidth::Width78mm => 576,
             PaperWidth::Width80mm => 640,
+            PaperWidth::Custom(mm) => mm * 8,
+        }
+    }
+
+    /// Approximate width in millimetres (used by the UI selector).
+    pub fn to_mm(&self) -> u32 {
+        match self {
+            PaperWidth::Width50mm => 50,
+            PaperWidth::Width78mm => 78,
+            PaperWidth::Width80mm => 80,
+            PaperWidth::Custom(mm) => *mm,
+        }
+    }
+
+    /// Build from a width in millimetres, snapping to a preset when it matches.
+    pub fn from_mm(mm: u32) -> Self {
+        match mm {
+            50 => PaperWidth::Width50mm,
+            78 => PaperWidth::Width78mm,
+            80 => PaperWidth::Width80mm,
+            other => PaperWidth::Custom(other),
         }
     }
 
