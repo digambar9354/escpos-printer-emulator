@@ -14,6 +14,9 @@ const PAPER_COLOR: Color32 = Color32::from_rgb(250, 250, 247);
 const INK_COLOR: Color32 = Color32::from_rgb(28, 28, 30);
 /// Base monospace size on the paper at 1.0x zoom.
 const BASE_TEXT_SIZE: f32 = 13.0;
+/// Approximate monospace character advance as a fraction of the font size
+/// (slightly generous so a full-width line doesn't wrap on wider mono fonts).
+const CHAR_ADVANCE: f32 = 0.62;
 
 pub struct ReceiptViewer {
     show_paper_edges: bool,
@@ -177,9 +180,10 @@ impl ReceiptViewer {
         printer_state: &PrinterState,
     ) {
         let zoom = self.zoom;
-        // Size the on-screen paper to the selected width (approx. monospace advance per char).
+        // Strict page width: the paper is exactly the configured paper size. Text wraps and
+        // rasters scale to fit — nothing renders beyond the page edge.
         let max_chars = printer_state.paper_width.get_max_chars(printer_state.font_size);
-        let content_px = (max_chars as f32 * BASE_TEXT_SIZE * 0.60).max(220.0) * zoom;
+        let content_px = (max_chars as f32 * BASE_TEXT_SIZE * CHAR_ADVANCE).max(120.0) * zoom;
 
         let mut paper = Frame::none()
             .fill(PAPER_COLOR)
