@@ -12,8 +12,6 @@ use tokio::sync::Mutex;
 const PAPER_COLOR: Color32 = Color32::from_rgb(250, 250, 247);
 /// Ink colour for text rendered on the paper.
 const INK_COLOR: Color32 = Color32::from_rgb(28, 28, 30);
-/// Base monospace size on the paper at 1.0x zoom.
-const BASE_TEXT_SIZE: f32 = 13.0;
 /// Approximate monospace character advance as a fraction of the font size
 /// (slightly generous so a full-width line doesn't wrap on wider mono fonts).
 const CHAR_ADVANCE: f32 = 0.62;
@@ -72,6 +70,25 @@ impl ReceiptViewer {
             if ui.button("Reset").clicked() {
                 self.zoom = 1.0;
             }
+
+            ui.separator();
+            ui.label("Paper");
+            if let Ok(mut state) = emulator_state.try_lock() {
+                let current = state.printer_state.paper_width.to_mm();
+                egui::ComboBox::from_id_source("paper_width_combo")
+                    .selected_text(format!("{} mm", current))
+                    .show_ui(ui, |ui| {
+                        for w in [50u32, 58, 78, 80] {
+                            if ui
+                                .selectable_label(current == w, format!("{} mm", w))
+                                .clicked()
+                            {
+                                state.set_paper_width(w);
+                            }
+                        }
+                    });
+            }
+
             ui.separator();
             ui.checkbox(&mut self.newest_first, "Newest on top");
             ui.checkbox(&mut self.show_grid, "Grid");
@@ -179,11 +196,17 @@ impl ReceiptViewer {
         was_cut: bool,
         printer_state: &PrinterState,
     ) {
-        let zoom = self.zoom;
-        // Strict page width: the paper is exactly the configured paper size. Text wraps and
-        // rasters scale to fit — nothing renders beyond the page edge.
-        let max_chars = printer_state.paper_width.get_max_chars(printer_state.font_size);
-        let content_px = (max_chars as f32 * BASE_TEXT_SIZE * CHAR_ADVANCE).max(120.0) * zoom;
+        // Dot-accurate: the paper is exactly the printer's pixel (dot) width, with one
+        // printer dot = `scale` screen pixels. The font size is derived so a full line of
+        // `max_chars` exactly spans the page, and rasters render at their true dot size.
+        let scale = self.zoom;
+        let page_dots = printer_state.get_paper_width_dots() as f32;
+        let max_chars = printer_state
+            .paper_width
+            .get_max_chars(printer_state.font_size)
+            .max(1) as f32;
+        let content_px = page_dots * scale;
+        let font_px = (content_px / max_chars / CHAR_ADVANCE).max(6.0);
 
         let mut paper = Frame::none()
             .fill(PAPER_COLOR)
@@ -216,7 +239,7 @@ impl ReceiptViewer {
                             // collapsed. Normal blank lines elsewhere keep their spacing.
                             if !prev_bitmap {
                                 ui.spacing_mut().item_spacing.y = default_gap;
-                                ui.add_space(6.0 * zoom);
+                                ui.add_space(0.5 * font_px);
                             }
                         } else {
                             ui.spacing_mut().item_spacing.y = default_gap;
@@ -225,7 +248,7 @@ impl ReceiptViewer {
                                 line_num + 1,
                                 text,
                                 printer_state.emphasis,
-                                zoom,
+                                font_px,
                             );
                             prev_bitmap = false;
                         }
@@ -238,7 +261,7 @@ impl ReceiptViewer {
                         // Image strips of a logo arrive as several rasters; render them
                         // with no vertical gap so they join into one seamless image.
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        self.render_bitmap(ui, *width_px, *height_px, data, content_px, zoom);
+                        self.render_bitmap(ui, *width_px, *height_px, data, scale, content_px);
                         prev_bitmap = true;
                     }
                     ReceiptLine::Separator => {}
@@ -248,30 +271,30 @@ impl ReceiptViewer {
             ui.spacing_mut().item_spacing.y = default_gap;
 
             if was_cut {
-                ui.add_space(10.0 * zoom);
+                ui.add_space(0.7 * font_px);
                 ui.label(
                     RichText::new("✂ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─")
                         .monospace()
-                        .size(13.0 * zoom)
+                        .size(font_px)
                         .color(Color32::from_gray(150)),
                 );
             }
         });
     }
 
-    fn render_text_line(&self, ui: &mut Ui, line_num: usize, text: &str, emphasis: bool, zoom: f32) {
+    fn render_text_line(&self, ui: &mut Ui, line_num: usize, text: &str, emphasis: bool, font_px: f32) {
         ui.horizontal(|ui| {
             if self.show_grid {
                 ui.label(
                     RichText::new(format!("{:03}", line_num))
                         .monospace()
-                        .size(11.0 * zoom)
+                        .size(font_px * 0.8)
                         .color(Color32::from_gray(170)),
                 );
             }
             let mut rt = RichText::new(text)
                 .monospace()
-                .size(BASE_TEXT_SIZE * zoom)
+                .size(font_px)
                 .color(INK_COLOR);
             if emphasis {
                 rt = rt.strong();
@@ -286,8 +309,8 @@ impl ReceiptViewer {
         width_px: u32,
         height_px: u32,
         data: &[u8],
+        scale: f32,
         max_width: f32,
-        zoom: f32,
     ) {
         let cache_key = hash_bytes(data);
 
@@ -307,9 +330,12 @@ impl ReceiptViewer {
             )
         });
 
-        // Scale by zoom, but never wider than the paper (so logos fit the selected width).
-        let scale = (max_width / width_px as f32).min(zoom);
-        let display_size = egui::vec2(width_px as f32 * scale, height_px as f32 * scale);
+        // 1 printer dot = `scale` screen px (true dot size). Clamp to the page width only
+        // if a raster is somehow wider than the paper.
+        let natural_w = width_px as f32 * scale;
+        let display_w = natural_w.min(max_width);
+        let ratio = if natural_w > 0.0 { display_w / natural_w } else { 1.0 };
+        let display_size = egui::vec2(display_w, height_px as f32 * scale * ratio);
         ui.image((texture.id(), display_size));
     }
 }
