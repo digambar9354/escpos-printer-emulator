@@ -177,7 +177,6 @@ impl ReceiptViewer {
         printer_state: &PrinterState,
     ) {
         let zoom = self.zoom;
-        let paper_width = printer_state.get_paper_width_dots();
         // Size the on-screen paper to the selected width (approx. monospace advance per char).
         let max_chars = printer_state.paper_width.get_max_chars(printer_state.font_size);
         let content_px = (max_chars as f32 * BASE_TEXT_SIZE * 0.60).max(220.0) * zoom;
@@ -191,7 +190,9 @@ impl ReceiptViewer {
         }
 
         paper.show(ui, |ui| {
-            ui.set_min_width(content_px);
+            // Fix the paper to the selected width (text wraps, like real receipt paper)
+            // instead of expanding to fill the window.
+            ui.set_width(content_px);
 
             // Render dark ink on the light paper regardless of the global dark theme.
             ui.visuals_mut().override_text_color = Some(INK_COLOR);
@@ -233,7 +234,7 @@ impl ReceiptViewer {
                         // Image strips of a logo arrive as several rasters; render them
                         // with no vertical gap so they join into one seamless image.
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        self.render_bitmap(ui, *width_px, *height_px, data, paper_width, zoom);
+                        self.render_bitmap(ui, *width_px, *height_px, data, content_px, zoom);
                         prev_bitmap = true;
                     }
                     ReceiptLine::Separator => {}
@@ -281,7 +282,7 @@ impl ReceiptViewer {
         width_px: u32,
         height_px: u32,
         data: &[u8],
-        _paper_width: u32,
+        max_width: f32,
         zoom: f32,
     ) {
         let cache_key = hash_bytes(data);
@@ -302,9 +303,8 @@ impl ReceiptViewer {
             )
         });
 
-        // Fit to ~400px base width, then apply the user's zoom factor.
-        let fit = (400.0 / width_px as f32).min(1.0);
-        let scale = fit * zoom;
+        // Scale by zoom, but never wider than the paper (so logos fit the selected width).
+        let scale = (max_width / width_px as f32).min(zoom);
         let display_size = egui::vec2(width_px as f32 * scale, height_px as f32 * scale);
         ui.image((texture.id(), display_size));
     }
